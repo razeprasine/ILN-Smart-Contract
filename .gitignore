@@ -10,3 +10,5 @@ target
 
 node_modules/
 sdk/node_modules/
+
+fix.md
