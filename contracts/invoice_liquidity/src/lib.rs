@@ -9,7 +9,8 @@ mod tests_regression;
 mod tests_new_features;
 
 pub use errors::ContractError;
-pub use invoice::{Invoice, InvoiceParams, InvoiceStatus};
+pub use invoice::{Invoice, InvoiceParams, InvoiceStatus, ReputationScore};
+pub use config::{Config, ConfigError, set_config, get_config};
 
 use soroban_sdk::{
     contract, contractimpl, token::Client as TokenClient, vec, Address, Env, IntoVal, Symbol, Vec,

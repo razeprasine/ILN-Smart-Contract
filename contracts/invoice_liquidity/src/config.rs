@@ -6,6 +6,8 @@ pub struct Config {
     pub high_rep_threshold: u32,
     pub bonus_bps: u32,
     pub min_discount_rate_bps: u32,
+    pub decay_rate_bps: u32,           // Basis points to decay per period (e.g., 50 = 0.5%)
+    pub decay_period_ledgers: u64,     // Ledger count between decay applications
 }
 
 #[contracttype]
@@ -58,6 +60,8 @@ pub fn update_config(
     high_rep_threshold: u32,
     bonus_bps: u32,
     min_discount_rate_bps: u32,
+    decay_rate_bps: u32,
+    decay_period_ledgers: u64,
 ) -> Result<(), ConfigError> {
     let admin = get_admin(env)?;
     caller.require_auth();
@@ -69,6 +73,8 @@ pub fn update_config(
         high_rep_threshold,
         bonus_bps,
         min_discount_rate_bps,
+        decay_rate_bps,
+        decay_period_ledgers,
     };
 
     set_config(env, &new_config)
