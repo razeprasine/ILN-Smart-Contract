@@ -692,10 +692,10 @@
               "key": {
                 "vec": [
                   {
-                    "symbol": "PayerScore"
+                    "symbol": "LpScore"
                   },
                   {
-                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
                   }
                 ]
               },
@@ -756,7 +756,7 @@
               },
               "durability": "persistent",
               "val": {
-                "u64": "1"
+                "u32": 51
               }
             }
           },
@@ -774,7 +774,7 @@
               "key": {
                 "vec": [
                   {
-                    "symbol": "TotalInvoices"
+                    "symbol": "TokenList"
                   }
                 ]
               },

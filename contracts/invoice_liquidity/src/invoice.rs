@@ -1,4 +1,4 @@
-use soroban_sdk::{contracttype, Address, Env};
+use soroban_sdk::{contracttype, Address, BytesN, Env};
 
 // ----------------------------------------------------------------
 // Status enum — tracks lifecycle of invoice
@@ -12,6 +12,7 @@ pub enum InvoiceStatus {
     PartiallyFunded, // partially funded by one or more LPs
     Paid,            // payer has settled in full, LP has been released
     Defaulted,       // past due_date and still unpaid
+    Appealed,        // payer has contested the default ruling (issue #36)
     Expired,         // past due_date with no funding
     Cancelled,       // freelancer cancelled the invoice before funding
 }
@@ -68,18 +69,35 @@ pub struct ContractStats {
 }
 
 // ----------------------------------------------------------------
-// ReputationScore — tracks score and last activity for decay
+// Issue #36: Appeal record stored per invoice
 // ----------------------------------------------------------------
 
 #[contracttype]
 #[derive(Clone, Debug)]
-pub struct ReputationScore {
-    pub score: u32,                    // 0-100
-    pub last_activity_ledger: u64,     // ledger sequence of last activity
+pub struct AppealRecord {
+    /// SHA-256 hash of off-chain evidence submitted by the payer.
+    pub evidence_hash: BytesN<32>,
+    /// Ledger timestamp when the appeal was filed.
+    pub appealed_at: u64,
+    /// Payer reputation score just before the default was applied,
+    /// used to restore the score if the appeal is upheld.
+    pub pre_default_score: u32,
 }
 
 // ----------------------------------------------------------------
-// Storage key (UPDATED for multi-token registry)
+// Issue #34: Single entry in the LP priority queue
+// ----------------------------------------------------------------
+
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct LpFundRequest {
+    pub lp: Address,
+    /// LP reputation score snapshotted at request time (used for ordering).
+    pub score: u32,
+}
+
+// ----------------------------------------------------------------
+// Storage key (UPDATED for multi-token registry + new features)
 // ----------------------------------------------------------------
 
 #[contracttype]
@@ -87,7 +105,7 @@ pub enum StorageKey {
     Invoice(u64),        // Invoice by ID
     InvoiceCount,        // auto-increment counter for IDs
     Token,               // USDC token address
-    PayerScore(Address), // Reputation score for a payer
+    PayerScore(Address), // Payer reputation score
     InvoiceFunders(u64), // List of funders for a partially funded invoice
     ApprovedToken(Address),
     TokenList,
@@ -95,6 +113,13 @@ pub enum StorageKey {
     FeeRate,
     MaxDiscountRate,
     DistributionContract,
+    // ── Issue #36: appeal_default ──────────────────────────────────
+    Appeal(u64),               // AppealRecord keyed by invoice ID
+    PreDefaultPayerScore(u64), // payer score snapshot taken BEFORE claim_default penalty
+    // ── Issue #34: LP priority queue ──────────────────────────────
+    LpScore(Address),    // LP reputation score (distinct from PayerScore)
+    FundQueue(u64),      // Vec<LpFundRequest> — LPs that joined the queue for an invoice
+    QueueResolution(u64), // Address — the LP that won the priority queue
     // Contract stats counters
     TotalInvoices,       // Total invoices submitted
     TotalFunded,         // Total invoices fully funded
@@ -107,7 +132,7 @@ pub enum StorageKey {
 }
 
 // ----------------------------------------------------------------
-// Storage helpers (UNCHANGED CORE LOGIC)
+// Storage helpers — core invoice CRUD
 // ----------------------------------------------------------------
 
 pub fn save_invoice(env: &Env, invoice: &Invoice) {
@@ -145,7 +170,11 @@ pub fn next_invoice_id(env: &Env) -> u64 {
     next
 }
 
-/// Get a payer's reputation score with lazy decay applied (0-100, default 50)
+// ----------------------------------------------------------------
+// Payer reputation helpers
+// ----------------------------------------------------------------
+
+/// Get a payer's reputation score (0-100, default 50)
 pub fn get_payer_score(env: &Env, payer: &Address) -> u32 {
     match env.storage()
         .persistent()
@@ -182,22 +211,17 @@ pub fn get_payer_score(env: &Env, payer: &Address) -> u32 {
     }
 }
 
-/// Update a payer's reputation score and update last_activity_ledger
+/// Update a payer's reputation score (capped at 100)
 pub fn set_payer_score(env: &Env, payer: &Address, score: u32) {
-    let mut score = score;
-    if score > 100 {
-        score = 100;
-    }
-    
-    let rep = ReputationScore {
-        score,
-        last_activity_ledger: env.ledger().sequence(),
-    };
-    
+    let score = score.min(100);
     env.storage()
         .persistent()
         .set(&StorageKey::PayerScore(payer.clone()), &rep);
 }
+
+// ----------------------------------------------------------------
+// Funder list helpers
+// ----------------------------------------------------------------
 
 /// Get the list of funders and their contributions for an invoice
 pub fn get_invoice_funders(env: &Env, id: u64) -> soroban_sdk::Vec<(Address, i128)> {
@@ -215,6 +239,82 @@ pub fn save_invoice_funders(env: &Env, id: u64, funders: &soroban_sdk::Vec<(Addr
 }
 
 // ----------------------------------------------------------------
+// Issue #36: Appeal helpers
+// ----------------------------------------------------------------
+
+pub fn get_appeal(env: &Env, invoice_id: u64) -> Option<AppealRecord> {
+    env.storage()
+        .persistent()
+        .get(&StorageKey::Appeal(invoice_id))
+}
+
+pub fn save_appeal(env: &Env, invoice_id: u64, record: &AppealRecord) {
+    env.storage()
+        .persistent()
+        .set(&StorageKey::Appeal(invoice_id), record);
+}
+
+/// Store the payer's score BEFORE the default penalty is applied.
+/// Called inside claim_default() so appeal_default() can restore it later.
+pub fn save_pre_default_payer_score(env: &Env, invoice_id: u64, score: u32) {
+    env.storage()
+        .persistent()
+        .set(&StorageKey::PreDefaultPayerScore(invoice_id), &score);
+}
+
+pub fn get_pre_default_payer_score(env: &Env, invoice_id: u64) -> Option<u32> {
+    env.storage()
+        .persistent()
+        .get(&StorageKey::PreDefaultPayerScore(invoice_id))
+}
+
+// ----------------------------------------------------------------
+// Issue #34: LP score + queue helpers
+// ----------------------------------------------------------------
+
+/// LP reputation score starts at 50 (same neutral baseline as payers)
+pub fn get_lp_score(env: &Env, lp: &Address) -> u32 {
+    env.storage()
+        .persistent()
+        .get(&StorageKey::LpScore(lp.clone()))
+        .unwrap_or(50)
+}
+
+/// Update an LP's reputation score (capped at 100)
+pub fn set_lp_score(env: &Env, lp: &Address, score: u32) {
+    let score = score.min(100);
+    env.storage()
+        .persistent()
+        .set(&StorageKey::LpScore(lp.clone()), &score);
+}
+
+/// Return all queued LP requests for an invoice
+pub fn get_fund_queue(env: &Env, invoice_id: u64) -> soroban_sdk::Vec<LpFundRequest> {
+    env.storage()
+        .persistent()
+        .get(&StorageKey::FundQueue(invoice_id))
+        .unwrap_or(soroban_sdk::Vec::new(env))
+}
+
+/// Persist the queue
+pub fn save_fund_queue(env: &Env, invoice_id: u64, queue: &soroban_sdk::Vec<LpFundRequest>) {
+    env.storage()
+        .persistent()
+        .set(&StorageKey::FundQueue(invoice_id), queue);
+}
+
+/// Return the resolved (approved) funder for an invoice, if any
+pub fn get_queue_resolution(env: &Env, invoice_id: u64) -> Option<Address> {
+    env.storage()
+        .persistent()
+        .get(&StorageKey::QueueResolution(invoice_id))
+}
+
+/// Store the approved funder chosen by the priority queue
+pub fn save_queue_resolution(env: &Env, invoice_id: u64, approved_lp: &Address) {
+    env.storage()
+        .persistent()
+        .set(&StorageKey::QueueResolution(invoice_id), approved_lp);
 // Contract stats helpers
 // ----------------------------------------------------------------
 

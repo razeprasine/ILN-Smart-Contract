@@ -19,6 +19,20 @@ pub enum ContractError {
     BatchTooLarge = 14,
     AlreadyCancelled = 15,
     AlreadyInitialized = 16,
+    // ── Issue #36: appeal_default ──────────────────────────────────
+    /// Payer attempted to appeal an invoice that is already in Appealed state.
+    AlreadyAppealed = 17,
+    /// Appeal window has closed; appeal can no longer be submitted.
+    AppealWindowClosed = 18,
+    /// Action requires the invoice to be in Defaulted state.
+    NotDefaulted = 19,
+    // ── Issue #34: LP priority queue ──────────────────────────────
+    /// LP has already joined the fund queue for this invoice.
+    AlreadyInQueue = 20,
+    /// fund_invoice rejected because a different LP was selected by the priority queue.
+    NotApprovedFunder = 21,
+    /// Invoice is in Appealed state and cannot be acted upon yet.
+    InvoiceAppealed = 22,
     ContractPaused = 17,
     DueDateTooSoon = 18,
     DueDateTooFar = 19,

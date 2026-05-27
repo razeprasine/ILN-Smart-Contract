@@ -144,8 +144,11 @@ pub fn check_invariants(env: &Env, contract: &InvoiceLiquidityContractClient) {
                 // fully paid out. No additional field constraints beyond status.
                 let _ = env; // env available for future timestamp checks
             }
-            InvoiceStatus::Defaulted | InvoiceStatus::Expired | InvoiceStatus::Cancelled => {
-                // Terminal states — no additional constraints required.
+            InvoiceStatus::Defaulted
+            | InvoiceStatus::Appealed
+            | InvoiceStatus::Expired
+            | InvoiceStatus::Cancelled => {
+                // Terminal / transitional states — no additional field constraints.
             }
         }
     }

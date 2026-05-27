@@ -636,6 +636,10 @@
               "key": {
                 "vec": [
                   {
+                    "symbol": "LpScore"
+                  },
+                  {
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
                     "symbol": "TokenList"
                   }
                 ]
@@ -673,7 +677,7 @@
               },
               "durability": "persistent",
               "val": {
-                "u64": "1"
+                "u32": 51
               }
             }
           },
@@ -697,6 +701,14 @@
               },
               "durability": "persistent",
               "val": {
+                "vec": [
+                  {
+                    "address": "CBEPDNVYXQGWB5YUBXKJWYJA7OXTZW5LFLNO5JRRGE6Z6C5OSUZPCCEL"
+                  },
+                  {
+                    "address": "CD3FXVGYSLQFFTW3UH6WFF2OKZH7VERGZJZAMJHTGHBWO4F6URWEJL23"
+                  }
+                ]
                 "u64": "1"
               }
             }

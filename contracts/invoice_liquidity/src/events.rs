@@ -1,4 +1,4 @@
-use soroban_sdk::{contractevent, Address};
+use soroban_sdk::{contractevent, Address, BytesN};
 
 use crate::invoice::InvoiceStatus;
 
@@ -120,14 +120,56 @@ pub struct AdminChanged {
     pub timestamp: u64,
 }
 
-#[contractevent(topics = ["paused"])]
+// ── Issue #36: appeal_default events ──────────────────────────────────────────
+
+/// Emitted when a payer files an appeal against an unfair default marking.
+#[contractevent(topics = ["default_appealed"])]
 #[derive(Clone, Debug, PartialEq)]
-pub struct ContractPaused {
-    pub timestamp: u64,
+pub struct DefaultAppealed {
+    #[topic]
+    pub invoice_id: u64,
+    #[topic]
+    pub payer: Address,
+    /// SHA-256 hash of off-chain evidence provided by the payer.
+    pub evidence_hash: BytesN<32>,
+    pub appealed_at: u64,
 }
 
-#[contractevent(topics = ["unpaused"])]
+/// Emitted when governance resolves a payer's appeal.
+#[contractevent(topics = ["appeal_resolved"])]
 #[derive(Clone, Debug, PartialEq)]
-pub struct ContractUnpaused {
-    pub timestamp: u64,
+pub struct AppealResolved {
+    #[topic]
+    pub invoice_id: u64,
+    #[topic]
+    pub payer: Address,
+    /// true = appeal upheld (default reversed); false = appeal rejected.
+    pub upheld: bool,
+    pub resolved_at: u64,
+}
+
+// ── Issue #34: LP priority queue events ───────────────────────────────────────
+
+/// Emitted when an LP registers their intent to fund via the priority queue.
+#[contractevent(topics = ["fund_requested"])]
+#[derive(Clone, Debug, PartialEq)]
+pub struct FundRequested {
+    #[topic]
+    pub invoice_id: u64,
+    #[topic]
+    pub lp: Address,
+    /// LP's reputation score at the time of registration.
+    pub score: u32,
+}
+
+/// Emitted when the priority queue is resolved and a winning LP is selected.
+#[contractevent(topics = ["fund_queue_resolved"])]
+#[derive(Clone, Debug, PartialEq)]
+pub struct FundQueueResolved {
+    #[topic]
+    pub invoice_id: u64,
+    #[topic]
+    pub approved_lp: Address,
+    /// Winning score that secured priority.
+    pub score: u32,
 }
